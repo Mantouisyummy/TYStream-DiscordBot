@@ -3,6 +3,7 @@ from logging import Logger
 
 from disnake.ext.commands import InteractionBot as OriginalBot
 
+from core.db import create_table
 
 
 class Bot(OriginalBot):
@@ -12,4 +13,5 @@ class Bot(OriginalBot):
         self.logger = logger
 
     async def on_ready(self):
+        await create_table()
         self.logger.info("The bot is ready! Logged in as %s" % self.user)

@@ -2,7 +2,6 @@ import asyncio
 import json
 import logging
 import os
-from os import getenv
 
 from colorlog import ColoredFormatter
 from disnake import Intents, Activity, BaseActivity
@@ -12,9 +11,9 @@ from dotenv import load_dotenv
 from core.bot import Bot
 
 
+
 def main():
-    if getenv("LOAD_ENV", "false").lower() == "true":
-        load_dotenv("stack.env")
+    load_dotenv()
 
     setup_logging()
 
@@ -53,18 +52,21 @@ def setup_logging():
         log_colors={
             'DEBUG': 'cyan',
             'INFO': 'white',
+            'BOT': 'bold_blue',
             'WARNING': 'yellow',
             'ERROR': 'red',
             'CRITICAL': 'bold_red',
         }
     )
 
+    logging.addLevelName(21, 'BOT')
+
     stream_handler = logging.StreamHandler()
     stream_handler.setLevel(logging.INFO)
     stream_handler.setFormatter(formatter)
 
     file_handler = logging.FileHandler(filename="tystream.log", encoding="utf-8", mode="w")
-    file_handler.setLevel(logging.DEBUG)
+    file_handler.setLevel(logging.INFO)
     file_handler.setFormatter(formatter)
 
     logging.basicConfig(
