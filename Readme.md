@@ -10,7 +10,7 @@
 - ✅ **自訂通知內容**：可自訂通知的頭像、名稱、訊息格式等，使通知更符合你的社群風格。  
 - ✅ **多平台支援**：同時支援 Twitch 和 YouTube 直播監測，讓你輕鬆管理所有直播通知。  
 - ✅ **基於 [TYStream](https://github.com/Mantouisyummy/TYStream) 開發**：這是由我開發的 Python 套件，專門用來處理 Twitch & YouTube 直播相關功能。  
-- ✅ **高效能**: 資料庫使用了 Sqlite + Redis 的結合，讓機器人性能更佳、延遲更低，更即時。
+- ✅ **高效能**: 資料庫使用了 SQLite + Redis 的結合，讓機器人性能更佳、延遲更低，更即時。
 
 ---
 
