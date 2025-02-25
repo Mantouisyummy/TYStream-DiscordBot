@@ -43,9 +43,9 @@ class Commands(commands.Cog):
     async def twitch(self, inter):
         pass
 
-    # @commands.slash_command()
-    # async def youtube(self, inter):
-    #     pass
+    @commands.slash_command()
+    async def youtube(self, inter):
+        pass
 
     @commands.slash_command(name="ping", description="Pong")
     async def ping(self, inter: ApplicationCommandInteraction):
@@ -202,7 +202,7 @@ class Commands(commands.Cog):
 
         twitch_username = await extract_twitch_username(username)
 
-        streamers = get_all_streamers(inter.guild.id, platform="twitch")
+        streamers = await get_all_streamers(inter.guild.id, platform="twitch")
         if twitch_username not in streamers:
             await inter.response.send_message(f"❌ `{twitch_username}` 不在追蹤列表內", ephemeral=True)
             return
@@ -226,7 +226,7 @@ class Commands(commands.Cog):
 
         if not streamers:
             embed = RemoveEmbed(title="<:twitch:1343217893441011833> 目前追蹤列表 (Twitch)", description="無")
-            await inter.response.send_message(embed=embed)
+            await inter.edit_original_response(embed=embed)
             return
 
         async with AsyncTwitch(Constants.TWITCH_CLIENT_ID, Constants.TWITCH_CLIENT_SECRET) as twitch:
@@ -254,7 +254,7 @@ class Commands(commands.Cog):
 
         await inter.response.send_message(embed=embed)
 
-    # # youtube
+    # # youtube chinese version
     # @youtube.sub_command(name="新增頻道", description="將 YouTube 頻道新增至群組直播追蹤列表，並在其開播時發送提醒")
     # @commands.has_guild_permissions(manage_guild=True)
     # async def add_channel(
@@ -304,6 +304,57 @@ class Commands(commands.Cog):
     #     embed = SuccessEmbed(title="<:youtube:1343218062991560735> 目前追蹤列表 (Youtube)", description=description)
     #
     #     await inter.response.send_message(embed=embed)
+
+    # youtube
+    @youtube.sub_command(name="add_channel", description="Add YouTube channels to your guild live tracking list and send alerts when they're on.")
+    @commands.has_guild_permissions(manage_guild=True)
+    async def add_channel(
+        self,
+        inter: ApplicationCommandInteraction,
+        channel: str = commands.Param(name="channel", description="YouTube Channel Link"),
+    ):
+        await upsert_user(inter.guild.id, channel, platform="youtube")
+
+        embed = SuccessEmbed(title="🎉 Success!", description=f"Added {channel} to the guild live tracking list")
+
+        await inter.response.send_message(embed=embed)
+
+    @youtube.sub_command(name="remove_channel", description="Remove YouTube channel from guild live tracking list")
+    @commands.has_guild_permissions(manage_guild=True)
+    async def delete_channel(
+        self,
+        inter: ApplicationCommandInteraction,
+        channel: str = commands.Param(
+            name="channel",
+            autocomplete=lambda inter, query: search_streamers(inter.guild.id, query, platform="youtube"),
+            description="YouTube Channel Link",
+        ),
+    ):
+        streamers = await get_all_streamers(inter.guild.id, platform="youtube")
+        if channel not in streamers:
+            await inter.response.send_message(f"❌ `{channel}` no longer in the tracking list", ephemeral=True)
+            return
+
+        await delete_user(inter.guild.id, channel, platform="youtube")
+
+        embed = RemoveEmbed(title="🗑️ Success!", description=f"Removed from group live tracking list {channel}")
+
+        await inter.response.send_message(embed=embed)
+
+    @youtube.sub_command(name="view_channels", description="View all channels in the group live tracking list")
+    async def list_channels(self, inter: ApplicationCommandInteraction):
+        streamers = await get_all_streamers(inter.guild_id, platform="youtube")
+
+        if not streamers:
+            embed = RemoveEmbed(title="<:youtube:1343218062991560735> Current Tracking List (Youtube)", description="None")
+            await inter.response.send_message(embed=embed)
+            return
+
+        description = "\n".join(f"[{streamer}](https://www.youtube.com/channel/{streamer})" for streamer in streamers)
+
+        embed = SuccessEmbed(title="<:youtube:1343218062991560735> Current Tracking List (Youtube)", description=description)
+
+        await inter.response.send_message(embed=embed)
 
 def setup(bot: Bot):
     bot.add_cog(Commands(bot))
