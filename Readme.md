@@ -35,10 +35,11 @@
     <li><a href="#install-setup">安裝與設定</a></li>
     <li><a href="#install-bot">安裝機器人</a></li>
     <li><a href="#setting-env">設定環境變數</a></li>
-    <li><a href="#run-bot">啟動機器人</a><li>
+    <li><a href="#run-bot">啟動機器人</a></li>
     <li><a href="#tutorial">指令教學</a></li>
   </ol>
 </details>
+
 
 ---
 
