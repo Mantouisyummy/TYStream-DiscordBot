@@ -19,7 +19,6 @@
     <br />
     <a href="#install-setup"><strong>閱讀更多 »</strong></a>
     <br />
-    ·
     <br />
     <a href="https://discord.com/oauth2/authorize?client_id=1267467138839613553">邀請機器人</a>
     ·
