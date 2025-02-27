@@ -6,10 +6,40 @@ r = redis.Redis(host=Constants.REDIS_HOST, port=Constants.REDIS_PORT, password=C
 
 ### === Twitch 相關緩存 === ###
 
+def check_and_clear_twitch_streamer(streamer_id):
+    """檢查 Twitch 實況主是否在線，若已下線則清除緩存"""
+    if not is_twitch_streamer_live(streamer_id):
+        clear_twitch_notified_streamer(streamer_id)
+
+def check_and_clear_youtube_streamer(streamer_id):
+    """檢查 YouTube 直播主是否在線，若已下線則清除緩存"""
+    if not is_youtube_streamer_live(streamer_id):
+        clear_youtube_notified_streamer(streamer_id)
+
 def cache_twitch_guild_streamers(guild_id, streamers):
     """緩存特定 Guild 追蹤的 Twitch 實況主"""
+
+    if not streamers:
+        return
+
     r.sadd(f"twitch:guild_streamers:{guild_id}", *streamers)
     r.expire(f"twitch:guild_streamers:{guild_id}", 86400)
+
+def remove_twitch_guild_streamers(guild_id, streamers):
+    """移除特定 Guild 追蹤的 Twitch 實況主"""
+
+    if not streamers:
+        print(f"No streamers to remove for guild {guild_id}")
+        return
+
+    if isinstance(streamers, str):
+        streamers = [streamers]
+
+    print(f"Removing streamers from guild {guild_id}: {streamers}")
+
+    removed_count = r.srem(f"twitch:guild_streamers:{guild_id}", *streamers)
+    print(f"Successfully removed {removed_count} streamers")
+
 
 def get_twitch_guild_streamers(guild_id):
     """獲取特定 Guild 追蹤的 Twitch 直播主"""
@@ -19,8 +49,9 @@ def is_twitch_streamer_live(streamer_id):
     """檢查 Twitch 實況主是否在線"""
     return r.exists(f"twitch:live_streamer:{streamer_id}")
 
-def cache_twitch_streamer_live(streamer_id, duration=30):
+def cache_twitch_streamer_live(streamer_id, duration=10):
     """緩存 Twitch 直播狀態"""
+    clear_twitch_notified_streamer(streamer_id)
     r.setex(f"twitch:live_streamer:{streamer_id}", duration, "1")
 
 def mark_twitch_as_notified(guild_id, streamer_id, duration=600):
@@ -43,9 +74,19 @@ def clear_twitch_notified_streamer(streamer_id):
 ### === YouTube 相關緩存 === ###
 
 def cache_youtube_guild_streamers(guild_id, streamers):
-    """緩存特定 Guild 追蹤的 YouTube 直播主"""
+    if not streamers:
+        return
     r.sadd(f"youtube:guild_streamers:{guild_id}", *streamers)
     r.expire(f"youtube:guild_streamers:{guild_id}", 86400)
+
+def remove_youtube_guild_streamers(guild_id, streamers):
+    if not streamers:
+        return
+
+    if isinstance(streamers, str):
+        streamers = [streamers]
+
+    r.srem(f"youtube:guild_streamers:{guild_id}", *streamers)
 
 def get_youtube_guild_streamers(guild_id):
     """獲取特定 Guild 追蹤的 YouTube 直播主"""
@@ -55,8 +96,9 @@ def is_youtube_streamer_live(streamer_id):
     """檢查 YouTube 直播主是否在線"""
     return r.exists(f"youtube:live_streamer:{streamer_id}")
 
-def cache_youtube_streamer_live(streamer_id, duration=30):
+def cache_youtube_streamer_live(streamer_id, duration=10):
     """緩存 YouTube 直播狀態"""
+    clear_youtube_notified_streamer(streamer_id)
     r.setex(f"youtube:live_streamer:{streamer_id}", duration, "1")
 
 def mark_youtube_as_notified(guild_id, streamer_id, duration=600):

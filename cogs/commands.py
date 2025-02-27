@@ -21,6 +21,7 @@ from core.db import (
 from tystream import AsyncTwitch
 
 from core.embeds import SuccessEmbed, RemoveEmbed
+from core.redis_utils import remove_twitch_guild_streamers, remove_youtube_guild_streamers
 
 actions = {"刪除": 0, "更新訊息為 VOD": 1, "保留": 2}
 
@@ -99,25 +100,25 @@ class Commands(commands.Cog):
 
         await inter.response.send_message(embed=embed)
 
-    @commands.slash_command(name="自訂通知樣式", description="設定直播通知傳送時的頭像和名稱")
+    @commands.slash_command(name="customize_notification_style", description="Set the avatar and name for live stream notification delivery.")
     async def set_notification_style(
         self,
         inter: ApplicationCommandInteraction,
-        name: str = commands.Param(name="名稱", description="通知時顯示的名稱", default=None),
-        avatar: Attachment = commands.Param(name="頭像", description="通知時顯示的頭像 (上傳圖片檔案)", default=None),
+        name: str = commands.Param(name="name", description="Name displayed in the notification", default=None),
+        avatar: Attachment = commands.Param(name="avatar", description="Avatar displayed in the notification (upload image file)", default=None),
     ):
 
         description_parts = []
         if name:
             await upsert_webhook(inter.guild.id, name=name, platform="twitch")
-            description_parts.append(f"已將通知樣式的名稱設定為 `{name}`")
+            description_parts.append(f"The notification style name has been set to： `{name}`")
         if avatar:
             await upsert_webhook(inter.guild.id, avatar=avatar.url, platform="twitch")
-            description_parts.append(f"已將通知樣式的頭像設定為：[點我]({avatar.url})")
+            description_parts.append(f"The notification style avatar has been set to：[點我]({avatar.url})")
 
         description_text = "、".join(description_parts) if description_parts else "沒有變更任何設定"
 
-        embed = SuccessEmbed(title="🎨 設定成功", description=f"{description_text}")
+        embed = SuccessEmbed(title="🎨 Successfully set!", description=f"{description_text}")
 
         await inter.response.send_message(embed=embed)
 
@@ -144,23 +145,29 @@ class Commands(commands.Cog):
 
         await inter.response.send_message(embed=embed)
 
-    @commands.slash_command(name="設定直播通知頻道", description="將直播通知頻道設定為目前的頻道")
+    @twitch.sub_command(name="set_notification_channel",
+                        description="Set the live stream notification channel to the current channel.")
     @commands.has_guild_permissions(manage_channels=True)
     async def add_notification_channel(
-        self,
-        inter: ApplicationCommandInteraction,
-        channel: TextChannel = commands.Param(name="頻道", description="直播頻道"),
+            self,
+            inter: ApplicationCommandInteraction,
+            channel: TextChannel = commands.Param(name="channel", description="Live stream notification channel"),
     ):
         await upsert_channel(inter.guild.id, channel=channel.id, platform="twitch")
 
         webhooks = await channel.webhooks()
 
-        if not any("直播通知" == w.name for w in webhooks):
-            webhook = await channel.create_webhook(name="直播通知")
-            await upsert_webhook(inter.guild_id, link=webhook.url, platform="twitch")
+        webhook = next((w for w in webhooks if w.name == "TYStream直播通知"), None)
 
-        embed = SuccessEmbed(title="🎉 新增成功", description=f"已將直播通知頻道設定為 {channel.mention}")
+        if webhook is None:
+            webhook = await channel.create_webhook(name="TYStream直播通知")
 
+        await upsert_webhook(inter.guild.id, link=webhook.url, platform="twitch")
+
+        embed = SuccessEmbed(
+            title="🎉 Added successfully!",
+            description=f"The live stream Twitch notification channel has been set to {channel.mention}"
+        )
         await inter.response.send_message(embed=embed)
 
     # twitch
@@ -172,7 +179,13 @@ class Commands(commands.Cog):
         inter: ApplicationCommandInteraction,
         username: str = commands.Param(name="實況主頻道", description="Twitch 用戶名稱或連結"),
     ):
-        await inter.response.defer()
+        await inter.response.defer(ephemeral=True)
+
+        streamers = await get_all_streamers(inter.guild.id, platform="twitch")
+
+        if username in streamers:
+            await inter.edit_original_response(f"❌ `{username}` 已在追蹤列表內")
+            return
 
         twitch_username = await extract_twitch_username(username)
 
@@ -198,13 +211,15 @@ class Commands(commands.Cog):
             description="Twitch 用戶名稱或連結",
         ),
     ):
-        await inter.response.defer()
+        await inter.response.defer(ephemeral=True)
 
         twitch_username = await extract_twitch_username(username)
 
+        remove_twitch_guild_streamers(inter.guild.id, twitch_username)
+
         streamers = await get_all_streamers(inter.guild.id, platform="twitch")
         if twitch_username not in streamers:
-            await inter.response.send_message(f"❌ `{twitch_username}` 不在追蹤列表內", ephemeral=True)
+            await inter.edit_original_response(f"❌ `{twitch_username}` 不在追蹤列表內")
             return
 
         await delete_user(inter.guild.id, twitch_username, platform="twitch")
@@ -313,11 +328,27 @@ class Commands(commands.Cog):
         inter: ApplicationCommandInteraction,
         channel: str = commands.Param(name="channel", description="YouTube Channel Link"),
     ):
-        await upsert_user(inter.guild.id, channel, platform="youtube")
+
+        await inter.response.defer(ephemeral=True)
+
+        streamers = await get_all_streamers(inter.guild.id, platform="youtube")
+
+        match = re.search(r'@([\w_-]+)', channel)
+
+        channel = match.group(1) if match else channel
+
+        if channel in streamers:
+            await inter.edit_original_response(f"❌ `{channel}` Already in the tracking list")
+            return
+
+        if not match:
+            return await inter.edit_original_response(embed=Embed(title="❌ 錯誤", description="無效的連結", colour=Colour.red()))
+
+        await upsert_user(inter.guild.id, match.group(1), platform="youtube")
 
         embed = SuccessEmbed(title="🎉 Success!", description=f"Added {channel} to the guild live tracking list")
 
-        await inter.response.send_message(embed=embed)
+        await inter.edit_original_response(embed=embed)
 
     @youtube.sub_command(name="remove_channel", description="Remove YouTube channel from guild live tracking list")
     @commands.has_guild_permissions(manage_guild=True)
@@ -330,30 +361,62 @@ class Commands(commands.Cog):
             description="YouTube Channel Link",
         ),
     ):
+
+        await inter.response.defer(ephemeral=True)
+
         streamers = await get_all_streamers(inter.guild.id, platform="youtube")
+
         if channel not in streamers:
-            await inter.response.send_message(f"❌ `{channel}` no longer in the tracking list", ephemeral=True)
+            await inter.edit_original_response(f"❌ `{channel}` no longer in the tracking list")
             return
+
+        remove_youtube_guild_streamers(inter.guild.id, channel)
 
         await delete_user(inter.guild.id, channel, platform="youtube")
 
         embed = RemoveEmbed(title="🗑️ Success!", description=f"Removed from group live tracking list {channel}")
 
-        await inter.response.send_message(embed=embed)
+        await inter.edit_original_response(embed=embed)
 
     @youtube.sub_command(name="view_channels", description="View all channels in the group live tracking list")
     async def list_channels(self, inter: ApplicationCommandInteraction):
+        await inter.response.defer()
+
         streamers = await get_all_streamers(inter.guild_id, platform="youtube")
 
         if not streamers:
             embed = RemoveEmbed(title="<:youtube:1343218062991560735> Current Tracking List (Youtube)", description="None")
-            await inter.response.send_message(embed=embed)
+            await inter.edit_original_response(embed=embed)
             return
 
         description = "\n".join(f"[{streamer}](https://www.youtube.com/channel/{streamer})" for streamer in streamers)
 
         embed = SuccessEmbed(title="<:youtube:1343218062991560735> Current Tracking List (Youtube)", description=description)
 
+        await inter.edit_original_response(embed=embed)
+
+    @youtube.sub_command(name="set_notification_channel", description="Set the live stream notification channel to the current channel.")
+    @commands.has_guild_permissions(manage_channels=True)
+    async def add_notification_channel(
+        self,
+        inter: ApplicationCommandInteraction,
+        channel: TextChannel = commands.Param(name="channel", description="Live stream notification channel"),
+    ):
+        await upsert_channel(inter.guild.id, channel=channel.id, platform="youtube")
+
+        webhooks = await channel.webhooks()
+
+        webhook = next((w for w in webhooks if w.name == "TYStream直播通知"), None)
+
+        if webhook is None:
+            webhook = await channel.create_webhook(name="TYStream直播通知")
+
+        await upsert_webhook(inter.guild.id, link=webhook.url, platform="youtube")
+
+        embed = SuccessEmbed(
+            title="🎉 Added successfully!",
+            description=f"The live stream Twitch notification channel has been set to {channel.mention}"
+        )
         await inter.response.send_message(embed=embed)
 
 def setup(bot: Bot):

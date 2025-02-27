@@ -5,6 +5,7 @@ from typing import Optional, List
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm.attributes import flag_modified
 
 from models.platform import TwitchGuilds, YouTubeGuilds
 from core.base import Base
@@ -89,6 +90,7 @@ async def upsert_user(guild_id: int, streamer: str, platform: str):
 
         if streamer not in guild.streamers:
             guild.streamers.append(streamer)
+            flag_modified(guild, "streamers")
 
         session.add(guild)
 
@@ -190,10 +192,17 @@ async def delete_user(guild_id: int, streamer: str, platform: str):
         result = await session.execute(stmt)
         guild = result.scalar()
 
-        if guild and isinstance(guild.streamers, list) and streamer in guild.streamers:
-            guild.streamers.remove(streamer)
-            session.add(guild)
-            await session.commit()
+        if guild:
+            if guild.streamers is None:
+                guild.streamers = []
+
+            if streamer in guild.streamers:
+                guild.streamers.remove(streamer)
+
+                flag_modified(guild, "streamers")
+
+                session.add(guild)
+                await session.commit()
 
 
 async def get_all_streamers(guild_id: int, platform: str) -> List[str]:
