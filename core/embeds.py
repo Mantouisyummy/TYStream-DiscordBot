@@ -40,8 +40,13 @@ class TwitchVODEmbed(Embed):
 
         self.add_field(name="觀看人數", value=vod.view_count, inline=True)
         self.add_field(name="長度", value=convert_duration(vod.duration), inline=True)
+        self.add_field(
+            name="直播結束時間",
+            value=f"<t:{int(vod.published_at.astimezone(pytz.timezone('Asia/Taipei')).replace(tzinfo=None).timestamp())}:R>",
+            inline=True,
+        )
 
         self.set_footer(
-            text=f"ㄐ器人由 鰻頭(´・ω・) 製作 • {vod.published_at.astimezone(pytz.timezone('Asia/Taipei')).replace(tzinfo=None)} 結束直播",
+            text=f"此通知由 TYStream 發布 • ㄐ器人由 鰻頭(´・ω・) 製作",
             icon_url="https://i.imgur.com/noEDGCf.png"
         )

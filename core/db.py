@@ -11,7 +11,7 @@ from models.platform import TwitchGuilds, YouTubeGuilds
 from core.base import Base
 
 DATABASE_URL = "sqlite+aiosqlite:///tystream.db"
-engine = create_async_engine(DATABASE_URL, echo=True, connect_args={'check_same_thread': False})
+engine = create_async_engine(DATABASE_URL, echo=False, connect_args={'check_same_thread': False})
 
 AsyncSessionLocal = sessionmaker(
     autocommit=False,
@@ -53,12 +53,19 @@ async def upsert_notification_content_and_role(guild_id: int, role_id: int, cont
         guild = result.scalar()
 
         if guild:
-            guild.notification_role = role_id
-            guild.content = content
+            if role_id:
+                guild.notification_role = role_id
+            if content:
+                guild.content = content
         else:
-            guild = model(id=guild_id, notification_role=role_id, content=content)
+            guild = model(
+                id=guild_id,
+                notification_role=role_id if role_id else None,
+                content=content if content else None
+            )
 
         session.add(guild)
+
 
 
 async def upsert_message(guild_id: int, message_id: int, platform: str):

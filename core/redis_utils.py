@@ -2,7 +2,9 @@ import redis
 
 import Constants
 
-r = redis.Redis(host=Constants.REDIS_HOST, port=Constants.REDIS_PORT, password=Constants.REDIS_PASSWORD, db=0)
+
+
+r = redis.Redis(host=Constants.REDIS_HOST, port=Constants.REDIS_PORT, password=Constants.REDIS_PASSWORD, db=0, decode_responses=True)
 
 ### === Twitch 相關緩存 === ###
 
@@ -25,20 +27,17 @@ def cache_twitch_guild_streamers(guild_id, streamers):
     r.sadd(f"twitch:guild_streamers:{guild_id}", *streamers)
     r.expire(f"twitch:guild_streamers:{guild_id}", 86400)
 
-def remove_twitch_guild_streamers(guild_id, streamers):
-    """移除特定 Guild 追蹤的 Twitch 實況主"""
 
+def remove_twitch_guild_streamers(guild_id, streamers) -> bool:
+    """移除特定 Guild 追蹤的 Twitch 實況主"""
     if not streamers:
-        print(f"No streamers to remove for guild {guild_id}")
-        return
+        return False
 
     if isinstance(streamers, str):
         streamers = [streamers]
 
-    print(f"Removing streamers from guild {guild_id}: {streamers}")
-
     removed_count = r.srem(f"twitch:guild_streamers:{guild_id}", *streamers)
-    print(f"Successfully removed {removed_count} streamers")
+    return removed_count > 0 # 返回是否成功移除
 
 
 def get_twitch_guild_streamers(guild_id):
@@ -50,36 +49,42 @@ def is_twitch_streamer_live(streamer_id):
     return r.exists(f"twitch:live_streamer:{streamer_id}")
 
 def cache_twitch_streamer_live(streamer_id, duration=10):
-    """緩存 Twitch 直播狀態"""
-    clear_twitch_notified_streamer(streamer_id)
     r.setex(f"twitch:live_streamer:{streamer_id}", duration, "1")
 
 def mark_twitch_as_notified(guild_id, streamer_id, duration=600):
     """標記 Twitch 實況主已通知"""
     r.sadd(f"twitch:notified_streams:{guild_id}", streamer_id)
-    r.expire(f"twitch:notified_streams:{guild_id}", duration)
+    r.expire(f"twitch:notified_streams:{guild_id}", duration)  # 直接設定過期時間
+
 
 def has_twitch_notified(guild_id, streamer_id):
     """檢查 Twitch 是否已通知"""
-    return r.sismember(f"twitch:notified_streams:{guild_id}", streamer_id)
+    notified = r.sismember(f"twitch:notified_streams:{guild_id}", streamer_id)
+    print(f"[DEBUG] has_twitch_notified({guild_id}, {streamer_id}) = {notified}")
+    return notified
 
 def clear_twitch_notified_streamer(streamer_id):
     """清除 Twitch 已通知的直播狀態"""
-    keys = r.keys(f"twitch:notified_streams:*")
-    for key in keys:
-        r.srem(key, streamer_id)
-    r.delete(f"twitch:live_streamer:{streamer_id}")
-
+    cursor = 0
+    while True:
+        cursor, keys = r.scan(cursor, match="twitch:notified_streams:*", count=100)
+        for key in keys:
+            if r.sismember(key, streamer_id):
+                r.srem(key, streamer_id)
+        if cursor == 0:
+            break
 
 ### === YouTube 相關緩存 === ###
 
 def cache_youtube_guild_streamers(guild_id, streamers):
+    """緩存特定 Guild 追蹤的 Youtube 實況主"""
     if not streamers:
         return
     r.sadd(f"youtube:guild_streamers:{guild_id}", *streamers)
     r.expire(f"youtube:guild_streamers:{guild_id}", 86400)
 
 def remove_youtube_guild_streamers(guild_id, streamers):
+    """移除特定 Guild 追蹤的 Twitch 實況主"""
     if not streamers:
         return
 

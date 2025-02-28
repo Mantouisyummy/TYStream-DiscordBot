@@ -1,10 +1,11 @@
 import asyncio
+from collections import defaultdict
 from typing import Dict, Set, Optional
 
 import aiohttp
 import pytz
 
-from disnake import Embed, Color, ButtonStyle, Webhook, ApplicationCommandInteraction, Guild
+from disnake import Embed, Color, ButtonStyle, Webhook, ApplicationCommandInteraction, Guild, NotFound, HTTPException
 from disnake.utils import MISSING
 from disnake.ui import Button
 from disnake.ext import commands, tasks
@@ -25,7 +26,6 @@ taipei_tz = pytz.timezone("Asia/Taipei")
 
 notified_streams = set()
 
-
 def replace_text(text, role: Optional[str] = None):
     if not role:
         return text
@@ -39,9 +39,6 @@ def replace_text(text, role: Optional[str] = None):
 
 
 async def send_yt_webhook(data, guild: Guild, stream: YoutubeStreamDataAPI | YoutubeStreamDataYTDLP):
-
-    print(stream)
-
     guild_id = guild.id
 
     if not data:
@@ -51,8 +48,13 @@ async def send_yt_webhook(data, guild: Guild, stream: YoutubeStreamDataAPI | You
     webhook_avatar = data.webhook_avatar
     webhook_name = data.webhook_name
 
-    embed = Embed(title=stream.title if isinstance(stream, YoutubeStreamDataAPI) else stream.fulltitle, colour=Color.red())
-    embed.set_author(name=f"{stream.channelTitle} is live!", url=stream.url if isinstance(stream, YoutubeStreamDataAPI) else stream.webpage_url)
+    embed = Embed(
+        title=stream.title if isinstance(stream, YoutubeStreamDataAPI) else stream.fulltitle, colour=Color.red()
+    )
+    embed.set_author(
+        name=f"{stream.channelTitle} is live!",
+        url=stream.url if isinstance(stream, YoutubeStreamDataAPI) else stream.webpage_url,
+    )
     embed.set_image(url=stream.thumbnails.medium.url if isinstance(stream, YoutubeStreamDataAPI) else stream.thumbnail)
     embed.add_field(
         name="Live start time",
@@ -85,7 +87,11 @@ async def send_yt_webhook(data, guild: Guild, stream: YoutubeStreamDataAPI | You
             embed=embed,
             username=webhook_name,
             avatar_url=webhook_avatar,
-            components=Button(label="Watch Live", style=ButtonStyle.link, url=stream.url if isinstance(stream, YoutubeStreamDataAPI) else stream.webpage_url),
+            components=Button(
+                label="Watch Live",
+                style=ButtonStyle.link,
+                url=stream.url if isinstance(stream, YoutubeStreamDataAPI) else stream.webpage_url,
+            ),
             wait=True,
         )
 
@@ -116,12 +122,20 @@ async def send_twitch_webhook(data, guild: Guild, stream: TwitchStreamData):
     )
     embed.add_field(name="遊戲", value=stream.game_name, inline=True)
     embed.add_field(name="觀看人數", value=stream.viewer_count, inline=True)
-    embed.set_footer(text="此通知由 TYStream 發布", icon_url="https://i.imgur.com/g1bfpCW.png")
+    embed.set_footer(text="此通知由 TYStream 發布 • ㄐ器人由 鰻頭(´・ω・) 製作", icon_url="https://i.imgur.com/g1bfpCW.png")
+
+    role_mention = (
+        guild.get_role(int(data.notification_role)).mention
+        if data.notification_role and guild.get_role(int(data.notification_role))
+        else ""
+    )
+
+    content = replace_text(data.content, role_mention) if data.content else role_mention or MISSING
 
     async with aiohttp.ClientSession() as session:
         webhook = Webhook.from_url(webhook_url, session=session)
         message = await webhook.send(
-            content=replace_text(data.content, guild.get_role(int(data.notification_role)).mention),
+            content=content,
             embed=embed,
             username=webhook_name,
             avatar_url=webhook_avatar,
@@ -143,7 +157,7 @@ class Events(commands.Cog):
     async def on_ready(self):
         self.bot.logger.info(f"Cog {self.__class__.__name__} has started")
         self.check_twitch_stream.start()
-        self.check_youtube_stream.start()
+        # self.check_youtube_stream.start()
         self.bot.logger.info("Stream check loop has started")
 
     @commands.Cog.listener()
@@ -183,7 +197,7 @@ class Events(commands.Cog):
             async with AsyncYoutube(Constants.YOUTUBE_API_KEY) as youtube:
                 tasks_list = [
                     youtube.check_stream_live(
-                        streamer.decode('utf-8') if isinstance(streamer, bytes) else streamer, use_yt_dlp=False
+                        streamer, use_yt_dlp=False
                     )
                     for streamer in streamers_to_check
                 ]
@@ -217,80 +231,106 @@ class Events(commands.Cog):
                                 case 0:
                                     await webhook.delete_message(message_id)
                                 case 1:
-                                    await webhook.edit_message(message_id, content=f"{streamer.decode('utf-8') if isinstance(streamer, bytes) else streamer} **已結束直播**")
+                                    await webhook.edit_message(
+                                        message_id,
+                                        content=f"{streamer} **已結束直播**",
+                                    )
                     else:
                         clear_youtube_notified_streamer(streamer)
-                        self.bot.logger.log(21, f"{streamer.decode('utf-8') if isinstance(streamer, bytes) else streamer} not live. (Youtube)")
+                        self.bot.logger.log(
+                            21,
+                            f"{streamer} not live. (Youtube)",
+                        )
 
-    @tasks.loop(seconds=3)
+    @tasks.loop(seconds=5)
     async def check_twitch_stream(self):
-        streamer_guilds_map: Dict[str, Set[int]] = {}
+        streamer_guilds_map: Dict[str, Set[int]] = defaultdict(set)
 
+        # 構建公會與 Streamer 的映射
         for guild in self.bot.guilds:
-            streamers = get_twitch_guild_streamers(guild.id)
-            if not streamers:
-                streamers = await get_all_streamers(guild.id, platform="twitch")
-                cache_twitch_guild_streamers(guild.id, streamers)
+            streamers = get_twitch_guild_streamers(guild.id) or await get_all_streamers(guild.id, platform="twitch")
+            cache_twitch_guild_streamers(guild.id, streamers)
 
             for streamer in streamers:
-                check_and_clear_twitch_streamer(streamer)
-                streamer_guilds_map.setdefault(streamer, set()).add(guild.id)
+                streamer_guilds_map[streamer].add(guild.id)
 
         all_streamers = list(streamer_guilds_map.keys())
 
-        stream_status = {streamer: is_twitch_streamer_live(streamer) for streamer in all_streamers}
+        # 初始檢查 Streamer 狀態
+        stream_status = {s: is_twitch_streamer_live(s) for s in all_streamers}
+        self.bot.logger.debug(f"初始 Stream 狀態: {stream_status}")
 
-        streamers_to_check = [streamer for streamer, live in stream_status.items() if not live]
+        # 找出需要 API 查詢的 Streamers
+        streamers_to_check = [s for s, live in stream_status.items() if live != 1]
 
-        print(streamers_to_check)
+        async with AsyncTwitch(Constants.TWITCH_CLIENT_ID, Constants.TWITCH_CLIENT_SECRET) as twitch:
+            if streamers_to_check:
+                tasks_list = [twitch.check_stream_live(s) for s in streamers_to_check]
+                results = await asyncio.gather(*tasks_list, return_exceptions=True)
 
-        if streamers_to_check:
-            async with AsyncTwitch(Constants.TWITCH_CLIENT_ID, Constants.TWITCH_CLIENT_SECRET) as twitch:
-                tasks_list = [twitch.check_stream_live(streamer.decode('utf-8') if isinstance(streamer, bytes) else streamer) for streamer in streamers_to_check]
-                results = await asyncio.gather(*tasks_list)
+                for streamer, result in zip(streamers_to_check, results):
+                    if isinstance(result, Exception):
+                        self.bot.logger.error(f"Twitch API Error for {streamer}: {result}")
+                        continue
 
-                for streamer, is_live in zip(streamers_to_check, results):
-                    stream_status[streamer] = is_live
-                    if is_live:
+                    if isinstance(result, TwitchStreamData):
+                        stream_status[streamer] = result
                         cache_twitch_streamer_live(streamer)
+                    else:
+                        prev_live_status = is_twitch_streamer_live(streamer)
+                        if prev_live_status:
+                            self.bot.logger.debug(f"{streamer} 可能短暫掉線，暫不通知離線")
+                            continue
+                        stream_status[streamer] = None
 
-        for streamer, is_live in stream_status.items():
-            if is_live:
-                for guild_id in streamer_guilds_map[streamer]:
-                    if not has_twitch_notified(guild_id, streamer):
-                        data = await get_guild(guild_id, platform="twitch")
-                        print(f"🔔 Guild {guild_id}: {streamer} 正在直播 (Twitch)！")
-                        await send_twitch_webhook(data, self.bot.get_guild(guild_id), is_live)
-                        mark_twitch_as_notified(guild_id, streamer)
-            else:
-                for guild_id in streamer_guilds_map[streamer]:
-                    streamer = streamer.decode('utf-8')
-                    if has_twitch_notified(guild_id, streamer):
-                        action = await get_action(guild_id, platform="twitch")
-                        message_id = await get_message_id(guild_id, platform="twitch")
+        async with aiohttp.ClientSession() as session:
+            for streamer, live_data in stream_status.items():
+                streamer_name = streamer.decode('utf-8') if isinstance(streamer, bytes) else streamer
 
-                        webhook_url = await get_webhook(guild_id, platform="twitch")
+                if isinstance(live_data, TwitchStreamData) or live_data == 1:
+                    # 直播中，發送通知
+                    for guild_id in streamer_guilds_map[streamer]:
+                        if not has_twitch_notified(guild_id, streamer):
+                            data = await get_guild(guild_id, platform="twitch")
+                            self.bot.logger.info(f"🔔 Guild {guild_id}: {streamer_name} 正在直播 (Twitch)！")
+                            await send_twitch_webhook(data, self.bot.get_guild(guild_id), live_data)
+                            mark_twitch_as_notified(guild_id, streamer)
+                else:
+                    # 檢查是否需要處理離線狀態
+                    for guild_id in streamer_guilds_map[streamer]:
+                        if has_twitch_notified(guild_id, streamer):
+                            action = await get_action(guild_id, platform="twitch")
+                            message_id = await get_message_id(guild_id, platform="twitch")
+                            webhook_url = await get_webhook(guild_id, platform="twitch")
 
-                        webhook = Webhook.from_url(webhook_url, session=aiohttp.ClientSession())
+                            if not message_id or not webhook_url:
+                                clear_twitch_notified_streamer(streamer)
+                                continue
 
-                        if message_id:
-                            match action:
-                                case 0:
+                            webhook = Webhook.from_url(str(webhook_url), session=session)
+
+                            try:
+                                if action == 0:
                                     await webhook.delete_message(message_id)
-                                case 1:
-                                    vod = await twitch.get_stream_vod(streamer)
+                                    clear_twitch_notified_streamer(streamer)  # 確認真的離線後才清除
+                                elif action == 1:
+                                    vod = await twitch.get_latest_stream_vod(streamer_name)
                                     if vod:
                                         embed = TwitchVODEmbed(vod)
                                         await webhook.edit_message(
                                             message_id,
-                                            content=f"{streamer} **已結束直播**",
+                                            content=f"{streamer_name} **已結束直播**",
                                             embed=embed,
-                                            components=Button(label="觀看VOD", style=ButtonStyle.link, url=vod.url),
+                                            components=Button(
+                                                label="觀看VOD", style=ButtonStyle.link, url=str(vod.url)
+                                            ),
                                         )
-                        clear_twitch_notified_streamer(streamer)
-                    else:
-                        self.bot.logger.log(25, streamer + " not live. (Twitch)")
-
+                                        clear_twitch_notified_streamer(streamer)
+                            except NotFound:
+                                self.bot.logger.warning(f"訊息 {message_id} 不存在，可能已被刪除: {streamer_name}.")
+                                clear_twitch_notified_streamer(streamer)
+                            except HTTPException as e:
+                                self.bot.logger.error(f"無法刪除/編輯訊息 {message_id} - {streamer_name}: {e}")
 
 def setup(bot: Bot):
     bot.add_cog(Events(bot))
