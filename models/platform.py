@@ -12,7 +12,7 @@ class GuildMixin:
     webhook_name = Column(String, nullable=True, default="直播通知")
     webhook_avatar = Column(String, nullable=True, default="https://i.imgur.com/g1bfpCW.png")
     notification_role = Column(BigInteger, nullable=True)
-    when_live_end = Column(Integer, nullable=False, default=3)
+    when_live_end = Column(Integer, nullable=False, default=2)
 
 class TwitchGuilds(Base, GuildMixin):
     __tablename__ = "twitch_guilds"

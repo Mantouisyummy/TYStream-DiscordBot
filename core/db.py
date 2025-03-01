@@ -38,7 +38,7 @@ async def create_table():
         await conn.run_sync(Base.metadata.create_all)
 
 
-async def get_guild(guild_id: int, platform: str):
+async def get_guild(guild_id: int, platform: str) -> TwitchGuilds | YouTubeGuilds:
     async with async_session_scope() as session:
         model = TwitchGuilds if platform == "twitch" else YouTubeGuilds
         stmt = select(model).where(model.id == guild_id)
@@ -114,6 +114,7 @@ async def upsert_action(guild_id: int, action: int, platform: str):
             guild = model(id=guild_id, when_live_end=action)
 
         session.add(guild)
+        await session.commit()
 
 async def upsert_channel(guild_id: int, channel: Optional[int], platform: str):
     async with async_session_scope() as session:
@@ -211,6 +212,17 @@ async def delete_user(guild_id: int, streamer: str, platform: str):
                 session.add(guild)
                 await session.commit()
 
+async def delete_message(guild_id: int, platform: str):
+    async with async_session_scope() as session:
+        model = TwitchGuilds if platform == "twitch" else YouTubeGuilds
+        stmt = select(model).where(model.id == guild_id)
+        result = await session.execute(stmt)
+        guild = result.scalar()
+
+        if guild:
+            guild.message_id = None
+
+        session.add(guild)
 
 async def get_all_streamers(guild_id: int, platform: str) -> List[str]:
     async with async_session_scope() as session:

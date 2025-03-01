@@ -120,7 +120,7 @@ class Commands(commands.Cog):
 
         embed.add_field(name="通知訊息", value=guild.content if guild.content else "無")
 
-        embed.add_field(name="直播結束時的動作", value=actions.get(guild.when_live_end, "保留"), inline=False)
+        embed.add_field(name="直播結束時的動作", value=next((key for key, val in actions.items() if val == guild.when_live_end), "保留"), inline=False)
 
         embed.set_footer(text="ㄐ器人由 鰻頭(´・ω・) 製作", icon_url="https://i.imgur.com/noEDGCf.png")
 
@@ -258,6 +258,7 @@ class Commands(commands.Cog):
         remove = remove_twitch_guild_streamers(inter.guild.id, twitch_username)
 
         streamers = await get_all_streamers(inter.guild.id, platform="twitch")
+
         if twitch_username not in streamers:
             await inter.edit_original_response(f"❌ `{twitch_username}` 不在追蹤列表內")
             return

@@ -48,20 +48,28 @@ def is_twitch_streamer_live(streamer_id):
     """檢查 Twitch 實況主是否在線"""
     return r.exists(f"twitch:live_streamer:{streamer_id}")
 
-def cache_twitch_streamer_live(streamer_id, duration=10):
+def cache_twitch_streamer_live(streamer_id, duration=60):
     r.setex(f"twitch:live_streamer:{streamer_id}", duration, "1")
 
-def mark_twitch_as_notified(guild_id, streamer_id, duration=600):
-    """標記 Twitch 實況主已通知"""
-    r.sadd(f"twitch:notified_streams:{guild_id}", streamer_id)
-    r.expire(f"twitch:notified_streams:{guild_id}", duration)  # 直接設定過期時間
+
+def mark_twitch_as_notified(guild_id, streamer_id, message_id):
+    """標記 Twitch 實況主已被通知"""
+    key = f"twitch:notified_streams:{guild_id}"
+    # 使用 hset 將訊息 ID 存儲在哈希中
+    r.hset(key, streamer_id, message_id)
+    return True
+
+def get_twitch_message_id(guild_id, streamer_id):
+    """獲取已通知的 Twitch 訊息 ID"""
+    key = f"twitch:notified_streams:{guild_id}"
+    return r.hget(key, streamer_id)
 
 
 def has_twitch_notified(guild_id, streamer_id):
-    """檢查 Twitch 是否已通知"""
-    notified = r.sismember(f"twitch:notified_streams:{guild_id}", streamer_id)
-    print(f"[DEBUG] has_twitch_notified({guild_id}, {streamer_id}) = {notified}")
-    return notified
+    """檢查 Twitch 實況主是否已被通知"""
+    key = f"twitch:notified_streams:{guild_id}"
+    return r.hexists(key, streamer_id)  # 檢查 Redis Hash 是否存在該主播的訊息 ID
+
 
 def clear_twitch_notified_streamer(streamer_id):
     """清除 Twitch 已通知的直播狀態"""
@@ -69,8 +77,9 @@ def clear_twitch_notified_streamer(streamer_id):
     while True:
         cursor, keys = r.scan(cursor, match="twitch:notified_streams:*", count=100)
         for key in keys:
-            if r.sismember(key, streamer_id):
-                r.srem(key, streamer_id)
+            # 使用 hdel 而不是 srem，因為我們在使用 hash 而不是 set
+            if r.hexists(key, streamer_id):
+                r.hdel(key, streamer_id)
         if cursor == 0:
             break
 
