@@ -1,8 +1,7 @@
 import asyncio
-import datetime
 
 from collections import defaultdict
-from typing import Dict, Set, Optional, List
+from typing import Dict, Set, Optional
 
 import aiohttp
 import pytz
@@ -27,11 +26,11 @@ taipei_tz = pytz.timezone("Asia/Taipei")
 notified_streams = set()
 
 
-def replace_text(text, role: Optional[str] = None):
-    if not role:
+def replace_text(text, role: Optional[str] = None, streamer_name: Optional[str] = None):
+    if not role or not streamer_name:
         return text
 
-    replacements = {"{everyone}": "@everyone", "{here}": "@here", "{role}": role}
+    replacements = {"{everyone}": "@everyone", "{here}": "@here", "{role}": role, "{name}": streamer_name}
 
     for old, new in replacements.items():
         text = text.replace(old, new)
@@ -39,8 +38,9 @@ def replace_text(text, role: Optional[str] = None):
     return text
 
 
-async def send_yt_webhook(data, guild: Guild, stream: YoutubeStreamDataAPI | YoutubeStreamDataYTDLP,
-                          session: aiohttp.ClientSession):
+async def send_yt_webhook(
+    data, guild: Guild, stream: YoutubeStreamDataAPI | YoutubeStreamDataYTDLP, session: aiohttp.ClientSession
+):
     guild_id = guild.id
 
     if not data:
@@ -106,6 +106,16 @@ async def send_twitch_webhook(data, guild: Guild, stream: TwitchStreamData, sess
         return
 
     webhook_url = data.webhook_link
+
+    if not webhook_url:
+        embed = Embed(
+            title=f"⚠️ 警告 (由 {guild.name} 發出)",
+            description="當您看到此訊息時，通常是因為您沒有設定通知頻道，導致通知訊息沒有正常發送，請使用`設定通知頻道`的指令設定。",
+            colour=Color.yellow(),
+        )
+        embed.set_footer(text="• 此訊息為系統自動發送")
+        return await guild.owner.send(embed=embed)
+
     webhook_avatar = data.webhook_avatar
     webhook_name = data.webhook_name
 
@@ -123,8 +133,9 @@ async def send_twitch_webhook(data, guild: Guild, stream: TwitchStreamData, sess
     )
     embed.add_field(name="遊戲", value=stream.game_name, inline=True)
     embed.add_field(name="觀看人數", value=stream.viewer_count, inline=True)
-    embed.set_footer(text="此通知由 TYStream 發布 • ㄐ器人由 鰻頭(´・ω・) 製作",
-                     icon_url="https://i.imgur.com/g1bfpCW.png")
+    embed.set_footer(
+        text="此通知由 TYStream 發布 • ㄐ器人由 鰻頭(´・ω・) 製作", icon_url="https://i.imgur.com/g1bfpCW.png"
+    )
 
     role_mention = (
         guild.get_role(int(data.notification_role)).mention
@@ -132,7 +143,9 @@ async def send_twitch_webhook(data, guild: Guild, stream: TwitchStreamData, sess
         else ""
     )
 
-    content = replace_text(data.content, role_mention) if data.content else role_mention or MISSING
+    content = (
+        replace_text(data.content, role_mention, stream.user.display_name) if data.content else role_mention or MISSING
+    )
 
     webhook = Webhook.from_url(webhook_url, session=session)
     message = await webhook.send(
@@ -140,13 +153,11 @@ async def send_twitch_webhook(data, guild: Guild, stream: TwitchStreamData, sess
         embed=embed,
         username=webhook_name,
         avatar_url=webhook_avatar,
-        components=Button(
-            label="觀看直播", style=ButtonStyle.link, url=f"https://www.twitch.tv/{stream.user.login}"
-        ),
+        components=Button(label="觀看直播", style=ButtonStyle.link, url=f"https://www.twitch.tv/{stream.user.login}"),
         wait=True,
     )
 
-    await upsert_message(guild_id, message.id, platform="twitch")
+    await upsert_message(guild_id, stream.user.login, message.id, platform="twitch")
 
     return message
 
@@ -268,10 +279,7 @@ class Events(commands.Cog):
                             print("編輯訊息 啟動!")
                             embed = TwitchStreamEmbed(live_data)
                             try:
-                                await webhook.edit_message(
-                                    message_id,
-                                    embed=embed,
-                                )
+                                await webhook.edit_message(message_id, embed=embed)
                             except NotFound:
                                 self.bot.logger.warning(f"訊息 {message_id} 已被刪除: {streamer}.")
                                 clear_twitch_notified_streamer(streamer)
@@ -281,30 +289,25 @@ class Events(commands.Cog):
     @tasks.loop(seconds=10)
     async def check_twitch_stream(self):
         streamer_guilds_map: Dict[str, Set[int]] = defaultdict(set)
-        guild_streamers_map: Dict[int, List[str]] = {}  # 緩存每個公會的streamers
 
         for guild in self.bot.guilds:
-            streamers = get_twitch_guild_streamers(guild.id) or await get_all_streamers(guild.id, platform="twitch")
-            cache_twitch_guild_streamers(guild.id, streamers)
-            guild_streamers_map[guild.id] = streamers
+            streamers = await get_all_streamers(guild.id, platform="twitch")
 
-            for streamer in streamers:
+            cache_twitch_guild_streamers(guild.id, list(streamers.keys()))
+
+            for streamer in streamers.keys():
                 streamer_guilds_map[streamer].add(guild.id)
 
         all_streamers = list(streamer_guilds_map.keys())
 
-        stream_status = {}
-        for streamer in all_streamers:
-            cached_status = is_twitch_streamer_live(streamer)
-            if cached_status == 1:
-                stream_status[streamer] = 1
-            else:
-                stream_status[streamer] = cached_status
+        stream_status = {s: is_twitch_streamer_live(s) for s in all_streamers}
 
         self.bot.logger.debug(f"初始 Stream 狀態: {stream_status}")
 
         streamers_to_check = [s for s, live in stream_status.items() if live != 1]
 
+        print("Streamer Guilds Map:", streamer_guilds_map)
+        print("all streamers:", all_streamers)
         async with AsyncTwitch(Constants.TWITCH_CLIENT_ID, Constants.TWITCH_CLIENT_SECRET) as twitch:
             if streamers_to_check:
                 tasks_list = [twitch.check_stream_live(s) for s in streamers_to_check]
@@ -337,19 +340,20 @@ class Events(commands.Cog):
                             if not has_twitch_notified(guild_id, streamer):
                                 data = await get_guild(guild_id, platform="twitch")
                                 self.bot.logger.info(f"🔔 Guild {guild_id}: {streamer_name} 正在直播 (Twitch)！")
-                                message = await send_twitch_webhook(data, self.bot.get_guild(guild_id), live_data,
-                                                                    session)
+                                message = await send_twitch_webhook(
+                                    data, self.bot.get_guild(guild_id), live_data, session
+                                )
                                 mark_twitch_as_notified(guild_id, streamer, message.id)
 
                     else:
                         for guild_id in streamer_guilds_map[streamer]:
                             if has_twitch_notified(guild_id, streamer):
                                 action = await get_action(guild_id, platform="twitch")
-                                message_id = await get_message_id(guild_id, platform="twitch")
+                                message_id = await get_message_id(guild_id, streamer, platform="twitch")
                                 webhook_url = await get_webhook(guild_id, platform="twitch")
 
                                 if not message_id or not webhook_url:
-                                    clear_twitch_notified_streamer(streamer)
+                                    clear_twitch_notified_streamer(guild_id, streamer)
                                     continue
 
                                 webhook = Webhook.from_url(str(webhook_url), session=session)
@@ -357,23 +361,23 @@ class Events(commands.Cog):
                                 try:
                                     if action == 0:
                                         await webhook.delete_message(message_id)
-                                        clear_twitch_notified_streamer(streamer)
+                                        clear_twitch_notified_streamer(guild_id, streamer)
                                     elif action == 1:
                                         vod = await twitch.get_latest_stream_vod(streamer_name)
                                         if vod:
                                             embed = TwitchVODEmbed(vod)
                                             await webhook.edit_message(
                                                 message_id,
-                                                content=f"{streamer_name} **已結束直播**",
+                                                content=f"{(await twitch.get_user(streamer_name)).display_name} **已結束直播**",
                                                 embed=embed,
                                                 components=Button(
                                                     label="觀看VOD", style=ButtonStyle.link, url=str(vod.url)
                                                 ),
                                             )
-                                            clear_twitch_notified_streamer(streamer)
+                                            clear_twitch_notified_streamer(guild_id, streamer)
                                 except NotFound:
                                     self.bot.logger.warning(f"訊息 {message_id} 不存在，可能已被刪除: {streamer_name}.")
-                                    clear_twitch_notified_streamer(streamer)
+                                    clear_twitch_notified_streamer(guild_id, streamer)
                                 except HTTPException as e:
                                     self.bot.logger.error(f"無法刪除/編輯訊息 {message_id} - {streamer_name}: {e}")
 

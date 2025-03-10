@@ -1,6 +1,6 @@
 from contextlib import asynccontextmanager
 
-from typing import Optional, List
+from typing import Dict, Optional, List
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
@@ -68,7 +68,7 @@ async def upsert_notification_content_and_role(guild_id: int, role_id: int, cont
 
 
 
-async def upsert_message(guild_id: int, message_id: int, platform: str):
+async def upsert_message(guild_id: int, streamer: str, message_id: int, platform: str):
     async with async_session_scope() as session:
         model = TwitchGuilds if platform == "twitch" else YouTubeGuilds
         stmt = select(model).where(model.id == guild_id)
@@ -76,9 +76,11 @@ async def upsert_message(guild_id: int, message_id: int, platform: str):
         guild = result.scalar()
 
         if guild:
-            guild.message_id = message_id
+            guild.streamers[streamer] = message_id
         else:
-            guild = model(id=guild_id, message_id=message_id)
+            guild = model(id=guild_id, streamers={streamer: message_id})
+        
+        flag_modified(guild, "streamers")
 
         session.add(guild)
 
@@ -90,14 +92,15 @@ async def upsert_user(guild_id: int, streamer: str, platform: str):
         guild = result.scalar()
 
         if guild is None:
-            guild = model(id=guild_id, streamers=[])
+            guild = model(id=guild_id, streamers={})
 
-        if not isinstance(guild.streamers, list):
-            guild.streamers = []
+        if not isinstance(guild.streamers, dict):
+            guild.streamers = {}
 
         if streamer not in guild.streamers:
-            guild.streamers.append(streamer)
-            flag_modified(guild, "streamers")
+            guild.streamers[streamer] = None
+        
+        flag_modified(guild, "streamers")
 
         session.add(guild)
 
@@ -139,13 +142,13 @@ async def get_channel(guild_id: int, platform: str) -> Optional[int]:
         guild = result.scalar()
         return guild.channel_id if guild else None
 
-async def get_message_id(guild_id: int, platform: str) -> Optional[int]:
+async def get_message_id(guild_id: int, streamer: str, platform: str) -> Optional[int]:
     async with async_session_scope() as session:
         model = TwitchGuilds if platform == "twitch" else YouTubeGuilds
         stmt = select(model).where(model.id == guild_id)
         result = await session.execute(stmt)
         guild = result.scalar()
-        return guild.message_id if guild else None
+        return guild.streamers[streamer] if guild else None
 
 async def get_action(guild_id: int, platform: str) -> int:
     async with async_session_scope() as session:
@@ -224,13 +227,13 @@ async def delete_message(guild_id: int, platform: str):
 
         session.add(guild)
 
-async def get_all_streamers(guild_id: int, platform: str) -> List[str]:
+async def get_all_streamers(guild_id: int, platform: str) -> Dict[str, Optional[int]]:
     async with async_session_scope() as session:
         model = TwitchGuilds if platform == "twitch" else YouTubeGuilds
         stmt = select(model).where(model.id == guild_id)
         result = await session.execute(stmt)
         guild = result.scalar()
-        return guild.streamers if guild and isinstance(guild.streamers, list) else []
+        return guild.streamers if guild and isinstance(guild.streamers, dict) else {}
 
 
 async def search_streamers(guild_id: int, query: str, platform: str) -> List[str]:

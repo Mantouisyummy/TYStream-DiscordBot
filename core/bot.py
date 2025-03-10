@@ -1,7 +1,5 @@
-import json
 from logging import Logger
 
-import aiohttp
 from disnake.ext.commands import InteractionBot as OriginalBot
 
 from core.db import create_table

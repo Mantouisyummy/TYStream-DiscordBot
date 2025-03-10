@@ -25,7 +25,7 @@ from tystream import AsyncTwitch
 from core.embeds import SuccessEmbed, RemoveEmbed
 from core.redis_utils import remove_twitch_guild_streamers, remove_youtube_guild_streamers
 
-actions = {"刪除": 0, "更新訊息為 VOD": 1, "保留": 2}
+actions = {"刪除": 0, "更新訊息為 VOD": 1}
 
 
 async def extract_twitch_username(twitch_name_or_link: str) -> str:
@@ -65,7 +65,8 @@ class Commands(commands.Cog):
                 "📢 訊息可以輸入以下的替換字元來自訂想顯示的內容：\n"
                 "* 🔹 **{everyone}** → Tag 所有人\n"
                 "* 🔹 **{here}** → Tag 當前在線的成員\n"
-                "* 🔹 **{role}** → Tag 設定的通知身分組\n\n"
+                "* 🔹 **{role}** → Tag 設定的通知身分組\n"
+                "* 🔹 **{name}** → 顯示被通知直播主的名稱\n\n"
                 "### 🎭 自訂通知帳號的頭像和名稱 (可選)\n"
                 "🖼️ 點選 </custom_notififcation_styles:1343141104580694028>，可自訂傳送直播通知的帳號頭像和名稱 (頭像需先下載到本地)。\n\n"
                 "### 🏁 設定直播結束後的動作 (預設為保留)\n"
@@ -297,11 +298,11 @@ class Commands(commands.Cog):
 
         await inter.edit_original_response(embed=embed)
 
-    Actions = commands.option_enum({"刪除": 0, "更新訊息為 VOD": 1, "保留": 2})
+    Actions = commands.option_enum({"刪除": 0, "更新訊息為 VOD": 1})
 
     @twitch.sub_command(name=Localized("set_actions_after_stream_ends", data={"zh-TW": "設定直播結束後的動作"}), description="可設定直播結束後，是否刪除通知訊息還是編輯通知訊息")
     @commands.has_guild_permissions(manage_guild=True)
-    async def set_action_when_live_end(self, inter: ApplicationCommandInteraction, action: Actions):
+    async def set_action_when_live_end(self, inter: ApplicationCommandInteraction, action: Actions): # type: ignore
         await upsert_action(inter.guild.id, action, platform="twitch")
 
         action_name = {v: k for k, v in actions.items()}[action]

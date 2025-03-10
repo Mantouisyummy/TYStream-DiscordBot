@@ -71,17 +71,11 @@ def has_twitch_notified(guild_id, streamer_id):
     return r.hexists(key, streamer_id)  # 檢查 Redis Hash 是否存在該主播的訊息 ID
 
 
-def clear_twitch_notified_streamer(streamer_id):
-    """清除 Twitch 已通知的直播狀態"""
-    cursor = 0
-    while True:
-        cursor, keys = r.scan(cursor, match="twitch:notified_streams:*", count=100)
-        for key in keys:
-            # 使用 hdel 而不是 srem，因為我們在使用 hash 而不是 set
-            if r.hexists(key, streamer_id):
-                r.hdel(key, streamer_id)
-        if cursor == 0:
-            break
+def clear_twitch_notified_streamer(guild_id, streamer_id):
+    """清除特定 Guild 中 Twitch 已通知的直播狀態"""
+    key = f"twitch:notified_streams:{guild_id}"
+    if r.hexists(key, streamer_id):
+        r.hdel(key, streamer_id)
 
 ### === YouTube 相關緩存 === ###
 
