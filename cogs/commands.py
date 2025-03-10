@@ -63,6 +63,7 @@ class Commands(commands.Cog):
                 "### ✨ 設定通知身分和訊息 (可選)\n"
                 "⚙️ 點選 </custom_notification_message:1344817673019593028>，選擇你想設定的通知身分組和訊息。\n\n"
                 "📢 訊息可以輸入以下的替換字元來自訂想顯示的內容：\n"
+                "* 🔹 **\n** → 換行\n"
                 "* 🔹 **{everyone}** → Tag 所有人\n"
                 "* 🔹 **{here}** → Tag 當前在線的成員\n"
                 "* 🔹 **{role}** → Tag 設定的通知身分組\n"

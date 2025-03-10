@@ -1,4 +1,5 @@
 import asyncio
+import re
 
 from collections import defaultdict
 from typing import Dict, Set, Optional
@@ -10,7 +11,7 @@ from disnake import Embed, Color, ButtonStyle, Webhook, ApplicationCommandIntera
 from disnake.utils import MISSING
 from disnake.ui import Button
 from disnake.ext import commands, tasks
-from tystream import TwitchStreamData, AsyncYoutube, YoutubeStreamDataAPI, YoutubeStreamDataYTDLP
+from tystream import TwitchStreamData
 
 import Constants
 from core.bot import Bot
@@ -26,77 +27,82 @@ taipei_tz = pytz.timezone("Asia/Taipei")
 notified_streams = set()
 
 
-def replace_text(text, role: Optional[str] = None, streamer_name: Optional[str] = None):
-    if not role or not streamer_name:
-        return text
-
-    replacements = {"{everyone}": "@everyone", "{here}": "@here", "{role}": role, "{name}": streamer_name}
+def replace_text(text: str, role: Optional[str] = None, streamer_name: Optional[str] = None) -> str:
+    replacements = {
+        "{everyone}": "@everyone",
+        "{here}": "@here",
+        "{role}": role if role is not None else "",
+        "{name}": streamer_name if streamer_name is not None else "",
+        "\\n": "\n"
+    }
 
     for old, new in replacements.items():
         text = text.replace(old, new)
 
+    text = re.sub(r'\s+', ' ', text).strip()
+
     return text
 
 
-async def send_yt_webhook(
-    data, guild: Guild, stream: YoutubeStreamDataAPI | YoutubeStreamDataYTDLP, session: aiohttp.ClientSession
-):
-    guild_id = guild.id
-
-    if not data:
-        return
-
-    webhook_url = data.webhook_link
-    webhook_avatar = data.webhook_avatar
-    webhook_name = data.webhook_name
-
-    embed = Embed(
-        title=stream.title if isinstance(stream, YoutubeStreamDataAPI) else stream.fulltitle, colour=Color.red()
-    )
-    embed.set_author(
-        name=f"{stream.channelTitle} is live!",
-        url=stream.url if isinstance(stream, YoutubeStreamDataAPI) else stream.webpage_url,
-    )
-    embed.set_image(url=stream.thumbnails.medium.url if isinstance(stream, YoutubeStreamDataAPI) else stream.thumbnail)
-    embed.add_field(
-        name="Live start time",
-        value=f"<t:{int(stream.LiveDetails.actualStartTime.astimezone(pytz.timezone('Asia/Taipei')).replace(tzinfo=None).timestamp() if isinstance(stream, YoutubeStreamDataAPI) else stream.timestamp)}:R>",
-        inline=True,
-    )
-    embed.add_field(
-        name="View count",
-        value=(
-            stream.LiveDetails.concurrentViewers or 0
-            if isinstance(stream, YoutubeStreamDataAPI)
-            else stream.concurrent_view_count
-        ),
-        inline=True,
-    )
-    embed.set_footer(text="This notice is issued by TYStream.", icon_url="https://i.imgur.com/g1bfpCW.png")
-
-    role_mention = (
-        guild.get_role(int(data.notification_role)).mention
-        if data.notification_role and guild.get_role(int(data.notification_role))
-        else ""
-    )
-
-    content = replace_text(data.content, role_mention) if data.content else role_mention or MISSING
-
-    webhook = Webhook.from_url(webhook_url, session=session)
-    message = await webhook.send(
-        content=content,
-        embed=embed,
-        username=webhook_name,
-        avatar_url=webhook_avatar,
-        components=Button(
-            label="Watch Live",
-            style=ButtonStyle.link,
-            url=stream.url if isinstance(stream, YoutubeStreamDataAPI) else stream.webpage_url,
-        ),
-        wait=True,
-    )
-
-    await upsert_message(guild_id, message.id, platform="youtube")
+# async def send_yt_webhook(
+#     data, guild: Guild, stream: YoutubeStreamDataAPI | YoutubeStreamDataYTDLP, session: aiohttp.ClientSession
+# ):
+#     guild_id = guild.id
+#
+#     if not data:
+#         return
+#
+#     webhook_url = data.webhook_link
+#     webhook_avatar = data.webhook_avatar
+#     webhook_name = data.webhook_name
+#
+#     embed = Embed(
+#         title=stream.title if isinstance(stream, YoutubeStreamDataAPI) else stream.fulltitle, colour=Color.red()
+#     )
+#     embed.set_author(
+#         name=f"{stream.channelTitle} is live!",
+#         url=stream.url if isinstance(stream, YoutubeStreamDataAPI) else stream.webpage_url,
+#     )
+#     embed.set_image(url=stream.thumbnails.medium.url if isinstance(stream, YoutubeStreamDataAPI) else stream.thumbnail)
+#     embed.add_field(
+#         name="Live start time",
+#         value=f"<t:{int(stream.LiveDetails.actualStartTime.astimezone(pytz.timezone('Asia/Taipei')).replace(tzinfo=None).timestamp() if isinstance(stream, YoutubeStreamDataAPI) else stream.timestamp)}:R>",
+#         inline=True,
+#     )
+#     embed.add_field(
+#         name="View count",
+#         value=(
+#             stream.LiveDetails.concurrentViewers or 0
+#             if isinstance(stream, YoutubeStreamDataAPI)
+#             else stream.concurrent_view_count
+#         ),
+#         inline=True,
+#     )
+#     embed.set_footer(text="This notice is issued by TYStream.", icon_url="https://i.imgur.com/g1bfpCW.png")
+#
+#     role_mention = (
+#         guild.get_role(int(data.notification_role)).mention
+#         if data.notification_role and guild.get_role(int(data.notification_role))
+#         else ""
+#     )
+#
+#     content = replace_text(data.content, role_mention) if data.content else role_mention or MISSING
+#
+#     webhook = Webhook.from_url(webhook_url, session=session)
+#     message = await webhook.send(
+#         content=content,
+#         embed=embed,
+#         username=webhook_name,
+#         avatar_url=webhook_avatar,
+#         components=Button(
+#             label="Watch Live",
+#             style=ButtonStyle.link,
+#             url=stream.url if isinstance(stream, YoutubeStreamDataAPI) else stream.webpage_url,
+#         ),
+#         wait=True,
+#     )
+#
+#     await upsert_message(guild_id, message.id, platform="youtube")
 
 
 async def send_twitch_webhook(data, guild: Guild, stream: TwitchStreamData, session: aiohttp.ClientSession):
